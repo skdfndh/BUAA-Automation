@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autotd-buaa"
+version = "0.1.15.post1"
+description = "AutoTD 本地可靠性修复版"
+requires-python = ">=3.11"
+
+[project.scripts]
+autotd = "auto_td.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["auto_td*"]
+
+[tool.setuptools.package-data]
+auto_td = ["data/*", "templates/*", "static/*", "ui_static/*"]
