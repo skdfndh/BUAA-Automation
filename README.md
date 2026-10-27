@@ -2,7 +2,7 @@
 
 将博雅选课、博雅签到签退、iClass 普通课程签到和 TD 调度放在同一套本地后台中，提供类别筛选、状态查看、失败记录与检查入口。
 
-这是对原项目的整合与可靠性修复，来源见 [第三方说明](THIRD_PARTY_NOTICES.md)。**AutoTD 原始分发包没有查到明确许可证，完整副本目前作为私有候选整理，未宣称整个仓库可按 MIT 再分发。**
+这是对原项目的整合与可靠性修复，来源见 [第三方说明](THIRD_PARTY_NOTICES.md)。**AutoTD 原始分发包没有查到明确许可证，完整副本仅作为私有项目保存，未宣称整个仓库可按 MIT 再分发。**
 
 ## 能力与启用条件
 
@@ -14,9 +14,11 @@
 
 ## 安装
 
-需要 Python 3.11 或 3.12。Windows 提供开机启动安装脚本；类别窗口需要 Python 自带的 Tkinter。先取得本仓库并进入根目录，然后执行：
+需要 Python 3.11 或 3.12。Windows 提供开机启动安装脚本；类别窗口需要 Python 自带的 Tkinter。获得私有仓库访问权限后，执行：
 
 ```powershell
+git clone https://github.com/skdfndh/BUAA-Automation.git
+cd BUAA-Automation
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".\packages\autoboya[dev]" -e .\packages\autotd
 .\.venv\Scripts\python.exe -m autoboya --help
