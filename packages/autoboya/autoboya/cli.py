@@ -788,4 +788,9 @@ def os_access_writable(path: Path) -> bool:
 
 
 def main() -> None:
+    if os.name == "nt":
+        for stream in (sys.stdout, sys.stderr):
+            configure = getattr(stream, "reconfigure", None)
+            if callable(configure):
+                configure(encoding="utf-8")
     app()
