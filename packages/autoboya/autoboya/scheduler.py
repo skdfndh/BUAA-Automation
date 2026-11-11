@@ -17,7 +17,8 @@ from .models import ActionResult, AutomationDecision, BoyaCourse, UserRecord
 from .rules import current_semester_window, has_autonomous_sign, is_auto_select_candidate, random_point_in_radius, sign_window_for
 from .session import ensure_bykc_client, force_login_bykc_client, close_client
 from .storage import AutoBoyaStore
-from .filters import load_auto_select_categories
+from .filters import load_auto_select_filters
+from .login_reminder import LoginReminder, session_version
 
 logger = logging.getLogger(__name__)
 SELECT_FAILURE_LIMIT = 3
@@ -28,6 +29,7 @@ def decide_actions(
     selected_by_user: dict[str, list[BoyaCourse]],
     now: datetime | None = None,
     categories: frozenset[str] | None = None,
+    excluded_keywords: tuple[str, ...] = (),
 ) -> list[AutomationDecision]:
     now = now or datetime.now()
     decisions: list[AutomationDecision] = []
@@ -43,7 +45,8 @@ def decide_actions(
     decisions.extend(
         AutomationDecision(action="select", course_id=course.id)
         for course in courses
-        if is_auto_select_candidate(course, now, ignore_selected=True, categories=categories)
+        if is_auto_select_candidate(course, now, ignore_selected=True, categories=categories,
+                                    excluded_keywords=excluded_keywords)
     )
     return decisions
 
@@ -53,6 +56,7 @@ class AutomationRunner:
         self.store = store
         self.cache = CourseCache(store)
         self._login_required: dict[str, int | None] = {}
+        self._reminder: LoginReminder | None = None
         self._unpersisted_actions: dict[str, str] = {}
         self._iclass_clients: dict[str, tuple[int | None, IclassClient]] = {}
         self._last_signin_service = float("-inf")
@@ -60,6 +64,8 @@ class AutomationRunner:
     def run_forever(self) -> None:
         self.store.init()
         with self.store.lock(RUN_LOCK_FILE):
+            if os.name == "nt":
+                self._reminder = LoginReminder(self.store)
             try:
                 self._run_forever()
             finally:
@@ -159,7 +165,8 @@ class AutomationRunner:
         courses = self.cache.parsed_courses()
         active = {user.username for user in self.store.user_records() if user.enabled}
         selected = {user: items for user, items in self._selected_by_user(self.cache.load_selected()).items() if user in active}
-        return decide_actions(courses, selected, datetime.now(), categories=load_auto_select_categories(self.store))
+        categories, keywords = load_auto_select_filters(self.store)
+        return decide_actions(courses, selected, datetime.now(), categories=categories, excluded_keywords=keywords)
 
     def run_once(self) -> list[ActionResult]:
         self.store.init()
@@ -281,7 +288,9 @@ class AutomationRunner:
                 course = courses_by_id.get(decision.course_id)
                 for user in users:
                     # 窗口保存后立即读取新限制，避免执行上一轮已生成的选课动作。
-                    if course is None or course.category not in load_auto_select_categories(self.store) or course.category == "其他方面":
+                    categories, keywords = load_auto_select_filters(self.store)
+                    if (course is None or course.category not in categories or course.category == "其他方面"
+                            or any(keyword in course.name for keyword in keywords)):
                         continue
                     if course and not course_matches_user_campus(course, user):
                         continue
@@ -292,8 +301,27 @@ class AutomationRunner:
                         continue
                     if select_failure_attempts(journal, user.username, decision.course_id) >= SELECT_FAILURE_LIMIT:
                         continue
+                    quota_key = f"quota:{user.username}:{course.category}"
+                    limited = self.store.load_json(SETTINGS_FILE, {}).get("auto_select_requirements_only") is True
+                    if limited:
+                        try:
+                            from .quotas import remaining_slots
+                            reservations = journal.get(quota_key, [])
+                            if not isinstance(reservations, list) or any(type(value) is not int for value in reservations):
+                                raise ValueError("选课名额预留记录损坏，暂停新选课")
+                            stats = self._with_reauth(user.username, lambda client: client.query_statistics())
+                            if remaining_slots(stats, course.category, reservations) <= 0:
+                                continue
+                            journal[quota_key] = list(dict.fromkeys([*reservations, decision.course_id]))
+                            self.store.save_json(ACTION_JOURNAL_FILE, journal)
+                        except Exception as exc:
+                            log_event(logger, logging.WARNING, "auto select quota check failed",
+                                      user=mask_username(user.username), course_id=decision.course_id, error=exc)
+                            continue
                     result = self._select_for_user(user, decision.course_id)
                     results.append(result)
+                    if limited and result.terminal and not result.ok:
+                        journal[quota_key] = [cid for cid in journal[quota_key] if cid != decision.course_id]
                     if result.ok:
                         journal.pop(select_failure_key(user.username, decision.course_id), None)
                     elif result.terminal:
@@ -379,10 +407,11 @@ class AutomationRunner:
         }
 
     def _with_reauth(self, username: str, operation):
-        session_path = self.store.path(f"sessions/{username}.json")
-        modified = session_path.stat().st_mtime_ns if session_path.exists() else None
+        modified = session_version(self.store, username)
         if username in self._login_required:
             if self._login_required[username] == modified:
+                if self._reminder:
+                    self._reminder.notify(username, modified)
                 raise InteractiveLoginRequired("需要人工验证码；请执行 autoboya login，登录成功后自动恢复")
             self._login_required.pop(username)
         client = None
@@ -394,10 +423,13 @@ class AutomationRunner:
                 close_client(client)
                 client = None
                 client = force_login_bykc_client(self.store, username)
+                modified = session_version(self.store, username)
                 return operation(client)
-        except InteractiveLoginRequired:
+        except (InteractiveLoginRequired, SessionExpired):
             # 等待交互登录更新会话，避免后台反复触发验证或账号限流。
             self._login_required[username] = modified
+            if self._reminder:
+                self._reminder.notify(username, modified)
             raise
         finally:
             close_client(client)

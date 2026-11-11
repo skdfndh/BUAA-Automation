@@ -140,6 +140,9 @@ class IclassClient:
             payload = self._json("GET", APP_BASE + "course/get_stu_course_sched.action",
                                  headers={"sessionId": self.session_id},
                                  params={"id": self.user_id, "dateStr": now.strftime("%Y%m%d")})
+            if payload.get("STATUS") == "2" and "result" not in payload and "ERRMSG" not in payload:
+                # 学校在无课日期返回 STATUS=2，且不附课程列表。
+                return []
             if not self._success(payload) or not isinstance(payload.get("result"), list):
                 raise IclassApiError(str(payload.get("ERRMSG") or "iClass 今日课程查询失败"))
             courses = []

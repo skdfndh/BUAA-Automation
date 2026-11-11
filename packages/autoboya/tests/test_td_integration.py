@@ -94,6 +94,47 @@ def test_stale_class_cache_defers_new_entrance(setup):
     client.check.assert_not_called()
 
 
+@pytest.mark.parametrize("source", ["boya", "class", "stale"])
+def test_disabled_course_conflicts_allow_td_without_calendar_dependency(setup, monkeypatch, source):
+    store, storage, _, client, probe = setup
+    settings = storage.load_settings()
+    settings["integration"]["avoid_course_conflicts"] = False
+    storage.save_settings(settings)
+    if source == "boya":
+        store.save_json("cache/selected.json", {"10000001": [{
+            "courseStartDate": "2026-10-27 15:30:00", "courseEndDate": "2026-10-27 16:30:00"}]})
+    elif source == "class":
+        store.save_json("cache/iclass.json", {"10000001": {"updated_at": NOW.isoformat(), "courses": [{
+            "begin": "2026-10-27 15:30:00", "end": "2026-10-27 16:30:00"}]}})
+    else:
+        store.save_json("cache/iclass.json", {})
+    conflicts = Mock(side_effect=AssertionError("不应读取课程冲突"))
+    monkeypatch.setattr(td, "conflict_reason", conflicts)
+    td.td_tick(store, storage, NOW, client, probe)
+    conflicts.assert_not_called()
+    probe.assert_called_once()
+    client.check.assert_called_once()
+    client.upload_photo.assert_called_once()
+
+
+@pytest.mark.parametrize("condition", ["window", "target", "network"])
+def test_disabling_conflicts_keeps_other_td_limits(setup, condition):
+    store, storage, user, client, probe = setup
+    settings = storage.load_settings()
+    settings["integration"]["avoid_course_conflicts"] = False
+    storage.save_settings(settings)
+    now = NOW
+    if condition == "window":
+        now = NOW.replace(hour=21)
+    elif condition == "target":
+        storage.set_last_count(user.student_id, 32)
+    else:
+        probe.side_effect = TimeoutError("离线")
+    td.td_tick(store, storage, now, client, probe)
+    client.check.assert_not_called()
+    client.upload_photo.assert_not_called()
+
+
 def test_pending_exit_is_not_delayed_by_class_conflict(setup):
     store, storage, user, client, probe = setup
     store.save_json("cache/iclass.json", {})
@@ -237,6 +278,9 @@ def test_corrupt_global_settings_cannot_look_like_disabled_healthy_td(setup):
 
 def test_dead_parent_is_reported_even_when_td_is_alive(setup, monkeypatch):
     store, _, _, _, _ = setup
+    import os
+    # 模拟检查时间必须与文件时间一致，避免现实日期推进后被误判为刚配置。
+    os.utime(store.path("td/settings.json"), (NOW.timestamp(), NOW.timestamp()))
     monkeypatch.setattr(td, "parent_running", lambda store: False)
     monkeypatch.setattr(td, "collect_td_status", lambda store: {"enabled": True, "running": True, "heartbeat": NOW.isoformat(),
                        "state": "waiting", "message": "等待", "users": []})

@@ -65,13 +65,15 @@ def serialize_course(item: dict[str, Any] | BoyaCourse) -> dict[str, Any]:
 def preview_auto_select_courses(
     raw_courses: list[dict[str, Any]], now: datetime | None = None,
     categories: frozenset[str] | None = None,
+    excluded_keywords: tuple[str, ...] = (),
 ) -> AutoPreview:
     now = now or datetime.now()
     candidates: list[BoyaCourse] = []
     excluded: dict[int, str] = {}
     for raw in raw_courses:
         course = parse_course(raw)
-        reason = auto_select_exclusion_reason(course, now, ignore_selected=True, categories=categories)
+        reason = auto_select_exclusion_reason(course, now, ignore_selected=True, categories=categories,
+                                             excluded_keywords=excluded_keywords)
         if reason is None:
             candidates.append(course)
         else:

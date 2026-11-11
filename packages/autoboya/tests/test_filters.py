@@ -200,3 +200,43 @@ def test_checkbox_window_saves_only_checked_categories(store):
         assert "暂停新选课" in window.message.get()
     finally:
         root.destroy()
+
+
+def test_keyword_blocks_series_in_preview_scan_and_queued_actions(store, monkeypatch):
+    runner = scheduler.AutomationRunner(store)
+    blocked = course(1)
+    blocked.name = '《“耕趣农场”劳动课》系列课程——青菜移植'
+    allowed = course(2)
+    allowed.name = "其他劳动课程"
+    runner.cache.save_courses([blocked, allowed])
+    save_auto_select_categories(store, ["美育"])
+    queued = runner.scan_once()
+    assert [item.course_id for item in queued] == [1, 2]
+    settings = store.load_json("settings.json")
+    settings["auto_select_excluded_keywords"] = ["耕趣农场"]
+    store.save_json("settings.json", settings)
+    save_auto_select_categories(store, ["美育"])
+    from autoboya.filters import load_auto_select_filters
+    categories, keywords = load_auto_select_filters(store)
+    assert keywords == ("耕趣农场",)
+    preview = preview_auto_select_courses(runner.cache.load_courses(), NOW, categories, keywords)
+    assert [item.id for item in preview.candidates] == [2]
+    assert preview.excluded[1] == "课程名称命中屏蔽关键词"
+    assert [item.course_id for item in runner.scan_once()] == [2]
+    submitted = []
+    monkeypatch.setattr(runner, "_select_for_user", lambda user, cid:
+                        submitted.append(cid) or ActionResult(user.username, "select", cid, True, "ok"))
+    monkeypatch.setattr(runner, "_refresh_user_cache", lambda user: None)
+    runner.execute_decisions(queued)
+    assert submitted == [2]
+    monkeypatch.setenv("AUTOBOYA_HOME", str(store.root))
+    result = CliRunner().invoke(app, ["courses", "auto-preview", "--json"])
+    assert result.exit_code == 0, result.output
+    assert [item["id"] for item in json.loads(result.output)["candidates"]] == [2]
+
+
+@pytest.mark.parametrize("keywords", [None, "耕趣农场", [""], [1], [" "]])
+def test_invalid_keyword_filter_pauses_new_selection(store, keywords):
+    store.save_json("settings.json", {"auto_select_categories": ["美育"],
+                                      "auto_select_excluded_keywords": keywords})
+    assert load_auto_select_categories(store) == frozenset()

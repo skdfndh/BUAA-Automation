@@ -187,6 +187,16 @@ def test_expired_app_session_relogs_once():
     assert queries == ["old-session", "new-session"]
 
 
+def test_empty_day_response_is_not_a_scan_failure():
+    def handler(request):
+        return httpx.Response(200, json={"STATUS": "2"})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        client = IclassClient(http_client=http)
+        client.user_id, client.session_id = "user-1", "session-1"
+        assert client.query_today(datetime(2026, 11, 6)) == []
+
+
 @pytest.mark.parametrize("begin,end,sign_status,expected", [
     ("09:50", "11:25", 0, True), ("09:50:00", "11:25:00", 0, True),
     ("2026-10-27 09:50:00", "2026-10-27 11:25:00", 0, True),

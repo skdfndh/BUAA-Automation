@@ -13,12 +13,20 @@ logger = logging.getLogger(__name__)
 
 
 def load_auto_select_categories(store: AutoBoyaStore) -> frozenset[str]:
+    return load_auto_select_filters(store)[0]
+
+
+def load_auto_select_filters(store: AutoBoyaStore) -> tuple[frozenset[str], tuple[str, ...]]:
     try:
-        return auto_select_categories(store.load_json(SETTINGS_FILE, {}))
+        settings = store.load_json(SETTINGS_FILE, {})
+        keywords = settings.get("auto_select_excluded_keywords", []) if isinstance(settings, dict) else []
+        if not isinstance(keywords, list) or any(not isinstance(value, str) or not value.strip() for value in keywords):
+            raise ValueError("屏蔽关键词必须为非空名称列表")
+        return auto_select_categories(settings), tuple(value.strip() for value in keywords)
     except (OSError, ValueError, TypeError) as exc:
         # 无法确认勾选范围时暂停新选课，不阻断已有课程的签到。
         log_event(logger, logging.WARNING, "auto select filters unreadable", error=exc)
-        return frozenset()
+        return frozenset(), ()
 
 
 def save_auto_select_categories(store: AutoBoyaStore, categories: list[str]) -> None:
@@ -49,6 +57,13 @@ class FilterWindow:
         frame.columnconfigure(0, weight=1)
         ttk.Label(frame, text="自动选课 · 课程类别", font=("Microsoft YaHei UI", 15, "bold")).grid(sticky="w")
         ttk.Label(frame, text="只选择勾选的类别；适用于所有已启用账号。", padding=(0, 8, 0, 12)).grid(sticky="w")
+        if store.load_json(SETTINGS_FILE, {}).get("auto_select_requirements_only") is True:
+            ttk.Label(frame, text="按学校要求限额：通过减未通过为有效门数；待完成课程占名额，满额不再选。",
+                      wraplength=525).grid(sticky="w")
+        _, excluded_keywords = load_auto_select_filters(store)
+        if excluded_keywords:
+            ttk.Label(frame, text="课程名称屏蔽：" + "、".join(excluded_keywords),
+                      wraplength=525, padding=(0, 0, 0, 12)).grid(sticky="w")
 
         saved = load_auto_select_categories(store)
         counts = Counter(course.category for course in CourseCache(store).parsed_courses() if course.category)

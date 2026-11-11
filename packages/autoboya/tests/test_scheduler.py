@@ -238,8 +238,8 @@ def test_heartbeat_logs_per_user_auto_check_count_only(caplog, tmp_path):
     store.init()
     store.save_users(
         [
-            {"username": "10000001", "password_ref": "unsafe-file", "unsafe_password": True, "enabled": True},
-            {"username": "20000002", "password_ref": "unsafe-file", "unsafe_password": True, "enabled": True},
+            {"username": "22375080", "password_ref": "unsafe-file", "unsafe_password": True, "enabled": True},
+            {"username": "23371098", "password_ref": "unsafe-file", "unsafe_password": True, "enabled": True},
             {"username": "disabled", "password_ref": "unsafe-file", "unsafe_password": True, "enabled": False},
         ]
     )
@@ -250,14 +250,14 @@ def test_heartbeat_logs_per_user_auto_check_count_only(caplog, tmp_path):
         runner.log_heartbeat(
             [
                 AutomationDecision(action="select", course_id=1001),
-                AutomationDecision(action="sign", course_id=2001, username="10000001"),
-                AutomationDecision(action="signout", course_id=2002, username="10000001"),
+                AutomationDecision(action="sign", course_id=2001, username="22375080"),
+                AutomationDecision(action="signout", course_id=2002, username="22375080"),
             ]
         )
 
     message = caplog.text
-    assert "automation heartbeat user=100*** auto_boya_check=2" in message
-    assert "automation heartbeat user=200*** auto_boya_check=0" in message
+    assert "automation heartbeat user=223*** auto_boya_check=2" in message
+    assert "automation heartbeat user=233*** auto_boya_check=0" in message
     assert "disabled" not in message
     assert "decisions=" not in message
     assert "next_refresh_seconds=" not in message

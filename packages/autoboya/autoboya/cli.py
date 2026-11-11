@@ -313,11 +313,13 @@ def courses_filters() -> None:
 
 @courses_app.command("auto-preview", help="按已勾选类别预览自动选课；保留自主签到等原有条件。")
 def courses_auto_preview(as_json: bool = typer.Option(False, "--json", help="以 JSON 输出候选和排除原因。")) -> None:
-    from .filters import load_auto_select_categories
+    from .filters import load_auto_select_filters
 
     store = AutoBoyaStore()
     cache = CourseCache(store)
-    preview = preview_auto_select_courses(cache.load_courses(), now=datetime.now(), categories=load_auto_select_categories(store))
+    categories, keywords = load_auto_select_filters(store)
+    preview = preview_auto_select_courses(cache.load_courses(), now=datetime.now(), categories=categories,
+                                         excluded_keywords=keywords)
     if as_json:
         typer.echo(
             json.dumps(

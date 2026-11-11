@@ -195,7 +195,8 @@ def td_tick(store, storage, now=None, client=None, network_probe=None):
                 (current.get("next_action") == "exit" or storage.get_last_count(user.student_id) < storage.load_settings()["integration"].get("target_count", 32))):
             pending.append((user, current))
     if pending and in_any_window(now, DEFAULT_WINDOWS):
-        if all(current.get("next_action") != "exit" for _, current in pending):
+        avoid_conflicts = storage.load_settings().get("integration", {}).get("avoid_course_conflicts", True) is not False
+        if avoid_conflicts and all(current.get("next_action") != "exit" for _, current in pending):
             reason = conflict_reason(store, now, max(user.wait_time_max for user, _ in pending) + 90)
             if reason:
                 return "waiting", reason

@@ -78,14 +78,18 @@ def auto_select_categories(settings: object) -> frozenset[str]:
 def is_auto_select_candidate(
     course: BoyaCourse, now: datetime, ignore_selected: bool = False,
     categories: frozenset[str] | None = None,
+    excluded_keywords: tuple[str, ...] = (),
 ) -> bool:
-    return auto_select_exclusion_reason(course, now, ignore_selected, categories) is None
+    return auto_select_exclusion_reason(course, now, ignore_selected, categories, excluded_keywords) is None
 
 
 def auto_select_exclusion_reason(
     course: BoyaCourse, now: datetime, ignore_selected: bool = False,
     categories: frozenset[str] | None = None,
+    excluded_keywords: tuple[str, ...] = (),
 ) -> str | None:
+    if any(keyword in course.name for keyword in excluded_keywords):
+        return "课程名称命中屏蔽关键词"
     if course.selected and not ignore_selected:
         return "已选"
     if not has_autonomous_sign(course):
